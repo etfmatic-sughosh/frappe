@@ -3,7 +3,7 @@ from frappe import _
 
 def get_data():
 	return [
-        {
+		{
 			"label": _("Form Customization"),
 			"icon": "fa fa-glass",
 			"items": [
@@ -54,12 +54,6 @@ def get_data():
 					"label": _("Custom Translations"),
 					"name": "Translation",
 					"description": _("Add your own translations")
-				},
-				{
-					"type": "doctype",
-					"label": _("Custom Tags"),
-					"name": "Tag Category",
-					"description": _("Add your own Tag Categories")
 				}
 			]
 		}

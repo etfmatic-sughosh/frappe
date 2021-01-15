@@ -7,13 +7,19 @@ export default class FileUploader {
 		on_success,
 		doctype,
 		docname,
+		fieldname,
 		files,
 		folder,
 		restrictions,
 		upload_notes,
 		allow_multiple,
-		as_dataurl
+		as_dataurl,
+		disable_file_browser,
+		frm
 	} = {}) {
+
+		frm && frm.attachments.max_reached(true);
+
 		if (!wrapper) {
 			this.make_dialog();
 		} else {
@@ -27,13 +33,15 @@ export default class FileUploader {
 					show_upload_button: !Boolean(this.dialog),
 					doctype,
 					docname,
+					fieldname,
 					method,
 					folder,
 					on_success,
 					restrictions,
 					upload_notes,
 					allow_multiple,
-					as_dataurl
+					as_dataurl,
+					disable_file_browser,
 				}
 			})
 		});

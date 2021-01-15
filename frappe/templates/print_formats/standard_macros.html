@@ -3,13 +3,18 @@
 		{{ render_table(df, doc) }}
 	{%- elif df.fieldtype=="HTML" and df.options -%}
 		<div>{{ frappe.render_template(df.options, {"doc": doc}) or "" }}</div>
-	{%- elif df.fieldtype in ("Text", "Text Editor", "Code") -%}
+	{%- elif df.fieldtype in ("Text", "Text Editor", "Code", "Long Text") -%}
 		{{ render_text_field(df, doc) }}
-	{%- elif df.fieldtype in ("Image", "Attach Image", "Attach", "Signature")
-		and (guess_mimetype(doc[df.fieldname])[0] or "").startswith("image/")  -%}
+	{%- elif df.fieldtype in ("Image", "Attach Image")
+		and (
+			(guess_mimetype(doc[df.fieldname])[0] or "").startswith("image/")  
+			or doc[df.fieldname].startswith("http")
+		) -%}
 		{{ render_image(df, doc) }}
 	{%- elif df.fieldtype=="Geolocation" -%}
 		{{ render_geolocation(df, doc) }}
+	{%- elif df.fieldtype=="Signature" -%}
+		{{ render_signature(df, doc) }}
 	{%- elif df.fieldtype=="Currency" -%}
 		{%- if doc.print_templates and
 				doc.print_templates.get(df.fieldname) -%}
@@ -71,9 +76,9 @@ data-fieldname="{{ df.fieldname }}" data-fieldtype="{{ df.fieldtype }}"
 {%- macro render_field_with_label(df, doc) -%}
 		<div class="row {% if df.bold %}important{% endif %} data-field" {{ fieldmeta(df) }}>
 			<div class="col-xs-{{ "9" if df.fieldtype=="Check" else "5" }}
-				{%- if doc._align_labels_right %} text-right{%- endif -%}">
+				{%- if doc.align_labels_right %} text-right{%- endif -%}">
 
-				{% if df.fieldtype not in ("Image","HTML","Check") and
+				{% if df.fieldtype not in ("Image", "HTML", "Check") and
 					doc.get(df.fieldname) != None %}
 				<label>{{ _(df.label) }}</label>
 				{% endif %}
@@ -93,19 +98,21 @@ data-fieldname="{{ df.fieldname }}" data-fieldtype="{{ df.fieldtype }}"
 {%- macro render_text_field(df, doc) -%}
 {%- if doc.get(df.fieldname) != None -%}
 <div style="padding: 10px 0px" {{ fieldmeta(df) }}>
-	{%- if df.fieldtype in ("Text", "Code") %}<label>{{ _(df.label) }}</label>{%- endif %}
+	{%- if df.fieldtype in ("Text", "Code", "Long Text") %}<label>{{ _(df.label) }}</label>{%- endif %}
 	{%- if df.fieldtype=="Code" %}
 		<pre class="value">{{ doc.get(df.fieldname) }}</pre>
 	{% else -%}
-		{%- if df.fieldtype=="Text Editor" -%}<div class='text-editor-print'>{%- endif -%}
 		{{ doc.get_formatted(df.fieldname, parent_doc or doc, translated=df.translatable) }}
-		{%- if df.fieldtype=="Text Editor" -%}</div>{%- endif -%}
   {% endif -%}
 </div>
 {%- endif -%}
 {%- endmacro -%}
 
 {%- macro render_image(df, doc) -%}
+	{{ print_value(df, doc) }}
+{% endmacro %}
+
+{%- macro render_signature(df, doc) -%}
 	{{ print_value(df, doc) }}
 {% endmacro %}
 
@@ -119,21 +126,23 @@ data-fieldname="{{ df.fieldname }}" data-fieldtype="{{ df.fieldtype }}"
         {% include doc.print_templates[df.fieldname] %}
 	{% elif df.fieldtype=="Check" %}
 		<i class="{{ 'fa fa-check' if doc[df.fieldname] }}"></i>
-	{% elif df.fieldtype=="Image" %}
+	{% elif df.fieldtype in ("Image", "Attach Image") %}
 		<img src="{{ doc[doc.meta.get_field(df.fieldname).options] }}"
 			class="img-responsive"
 			{%- if df.print_width %} style="width: {{ get_width(df) }};"{% endif %}>
 	{% elif df.fieldtype=="Signature" %}
 		<img src="{{ doc[df.fieldname] }}" class="signature-img img-responsive"
 			{%- if df.print_width %} style="width: {{ get_width(df) }};"{% endif %}>
-	{% elif df.fieldtype in ("Attach", "Attach Image") and doc[df.fieldname]
-		and frappe.utils.is_image(doc[df.fieldname]) %}
+	{% elif df.fieldtype == "Attach" and doc[df.fieldname] and frappe.utils.is_image(doc[df.fieldname]) %}
 		<img src="{{ doc[df.fieldname] }}" class="img-responsive"
 			{%- if df.print_width %} style="width: {{ get_width(df) }};"{% endif %}>
-    {% elif df.fieldtype=="HTML" %}
-        {{ frappe.render_template(df.options, {"doc":doc}) }}
-	{% else %}
+	{% elif df.fieldtype=="HTML" %}
+		{{ frappe.render_template(df.options, {"doc":doc}) }}
+	{% elif df.fieldtype=="Currency" %}
 		{{ doc.get_formatted(df.fieldname, parent_doc or doc, translated=df.translatable) }}
+	{% else %}
+		{%- set parent = parent_doc or doc -%}
+		{{ doc.get_formatted(df.fieldname, parent, translated=df.translatable, absolute_value=parent.absolute_value) }}
 	{% endif %}
 {%- endmacro %}
 

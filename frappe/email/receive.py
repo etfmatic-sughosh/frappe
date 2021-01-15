@@ -12,7 +12,6 @@ import frappe
 from frappe import _, safe_decode, safe_encode
 from frappe.utils import (extract_email_id, convert_utc_to_user_timezone, now,
 	cint, cstr, strip, markdown, parse_addr)
-from frappe.utils.scheduler import log
 from frappe.core.doctype.file.file import get_random_filename, MaxFileSizeReachedError
 
 class EmailSizeExceededError(frappe.ValidationError): pass
@@ -48,9 +47,9 @@ class EmailServer:
 		"""Connect to IMAP"""
 		try:
 			if cint(self.settings.use_ssl):
-				self.imap = Timed_IMAP4_SSL(self.settings.host, timeout=frappe.conf.get("pop_timeout"))
+				self.imap = Timed_IMAP4_SSL(self.settings.host, self.settings.incoming_port, timeout=frappe.conf.get("pop_timeout"))
 			else:
-				self.imap = Timed_IMAP4(self.settings.host, timeout=frappe.conf.get("pop_timeout"))
+				self.imap = Timed_IMAP4(self.settings.host, self.settings.incoming_port, timeout=frappe.conf.get("pop_timeout"))
 			self.imap.login(self.settings.username, self.settings.password)
 			# connection established!
 			return True
@@ -60,17 +59,13 @@ class EmailServer:
 			frappe.msgprint(_('Invalid Mail Server. Please rectify and try again.'))
 			raise
 
-		except Exception as e:
-			frappe.msgprint(_('Cannot connect: {0}').format(str(e)))
-			raise
-
 	def connect_pop(self):
 		#this method return pop connection
 		try:
 			if cint(self.settings.use_ssl):
-				self.pop = Timed_POP3_SSL(self.settings.host, timeout=frappe.conf.get("pop_timeout"))
+				self.pop = Timed_POP3_SSL(self.settings.host, self.settings.incoming_port, timeout=frappe.conf.get("pop_timeout"))
 			else:
-				self.pop = Timed_POP3(self.settings.host, timeout=frappe.conf.get("pop_timeout"))
+				self.pop = Timed_POP3(self.settings.host, self.settings.incoming_port, timeout=frappe.conf.get("pop_timeout"))
 
 			self.pop.user(self.settings.username)
 			self.pop.pass_(self.settings.password)
@@ -80,7 +75,7 @@ class EmailServer:
 
 		except _socket.error:
 			# log performs rollback and logs error in Error Log
-			log("receive.connect_pop")
+			frappe.log_error("receive.connect_pop")
 
 			# Invalid mail server -- due to refusing connection
 			frappe.msgprint(_('Invalid Mail Server. Please rectify and try again.'))
@@ -255,7 +250,7 @@ class EmailServer:
 
 			else:
 				# log performs rollback and logs error in Error Log
-				log("receive.get_messages", self.make_error_msg(msg_num, incoming_mail))
+				frappe.log_error("receive.get_messages", self.make_error_msg(msg_num, incoming_mail))
 				self.errors = True
 				frappe.db.rollback()
 
@@ -298,7 +293,7 @@ class EmailServer:
 			"Connection timed out",
 		)
 		for message in messages:
-			if message in strip(cstr(e.message)) or message in strip(cstr(getattr(e, 'strerror', ''))):
+			if message in strip(cstr(e)) or message in strip(cstr(getattr(e, 'strerror', ''))):
 				return True
 		return False
 
@@ -457,9 +452,9 @@ class Email:
 	def show_attached_email_headers_in_content(self, part):
 		# get the multipart/alternative message
 		try:
-		    from html import escape  # python 3.x
+			from html import escape  # python 3.x
 		except ImportError:
-		    from cgi import escape  # python 2.x
+			from cgi import escape  # python 2.x
 
 		message = list(part.walk())[1]
 		headers = []
@@ -481,7 +476,7 @@ class Email:
 		"""Detect chartset."""
 		charset = part.get_content_charset()
 		if not charset:
-			charset = chardet.detect(str(part))['encoding']
+			charset = chardet.detect(safe_encode(cstr(part)))['encoding']
 
 		return charset
 
@@ -515,7 +510,7 @@ class Email:
 				'fcontent': fcontent,
 			})
 
-			cid = (part.get("Content-Id") or "").strip("><")
+			cid = (cstr(part.get("Content-Id")) or "").strip("><")
 			if cid:
 				self.cid_map[fname] = cid
 
@@ -540,6 +535,8 @@ class Email:
 
 			except MaxFileSizeReachedError:
 				# WARNING: bypass max file size exception
+				pass
+			except frappe.FileAlreadyAttachedException:
 				pass
 			except frappe.DuplicateEntryError:
 				# same file attached twice??
@@ -585,6 +582,7 @@ class Timed_POP3(TimerMixin, poplib.POP3):
 
 class Timed_POP3_SSL(TimerMixin, poplib.POP3_SSL):
 	_super = poplib.POP3_SSL
+
 class Timed_IMAP4(TimerMixin, imaplib.IMAP4):
 	_super = imaplib.IMAP4
 

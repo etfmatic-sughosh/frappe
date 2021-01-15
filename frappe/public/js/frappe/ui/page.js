@@ -139,7 +139,7 @@ frappe.ui.Page = Class.extend({
 	},
 
 	set_indicator: function(label, color) {
-		this.clear_indicator().removeClass("hide").html(`<span class='hidden-xs hidden-sm'>${label}</span>`).addClass(color);
+		this.clear_indicator().removeClass("hide").html(`<span>${label}</span>`).addClass(color);
 	},
 
 	add_action_icon: function(icon, click) {
@@ -313,21 +313,12 @@ frappe.ui.Page = Class.extend({
 
 		let $li;
 		if (shortcut) {
-			let shortcut_label = shortcut;
-			if (frappe.utils.is_mac()) {
-				shortcut_label = shortcut.replace('Ctrl', '⌘');
-			}
+			let shortcut_obj = this.prepare_shortcut_obj(shortcut, click, label);
 			$li = $(`<li><a class="grey-link dropdown-item" href="#" onClick="return false;">
 				<span class="menu-item-label">${label}</span>
-				<span class="text-muted pull-right">${shortcut_label}</span>
+				<span class="text-muted pull-right">${shortcut_obj.shortcut_label}</span>
 			</a><li>`);
-			shortcut = shortcut.toLowerCase();
-			frappe.ui.keys.add_shortcut({
-				shortcut,
-				target: $li.find('a'),
-				description: label,
-				page: this
-			});
+			frappe.ui.keys.add_shortcut(shortcut_obj);
 		} else {
 			$li = $(`<li><a class="grey-link dropdown-item" href="#" onClick="return false;">
 				<span class="menu-item-label">${label}</span></a><li>`);
@@ -354,20 +345,51 @@ frappe.ui.Page = Class.extend({
 		return $link;
 	},
 
+	prepare_shortcut_obj(shortcut, click, label) {
+		let shortcut_obj;
+		// convert to object, if shortcut string passed
+		if (typeof shortcut === 'string') {
+			shortcut_obj = { shortcut };
+		} else {
+			shortcut_obj = shortcut;
+		}
+		// label
+		if (frappe.utils.is_mac()) {
+			shortcut_obj.shortcut_label = shortcut_obj.shortcut.replace('Ctrl', '⌘');
+		} else {
+			shortcut_obj.shortcut_label = shortcut_obj.shortcut;
+		}
+		// actual shortcut string
+		shortcut_obj.shortcut = shortcut_obj.shortcut.toLowerCase();
+		// action is button click
+		if (!shortcut_obj.action) {
+			shortcut_obj.action = click;
+		}
+		// shortcut description can be button label
+		if (!shortcut_obj.description) {
+			shortcut_obj.description = label;
+		}
+		// page
+		shortcut_obj.page = this;
+		return shortcut_obj;
+	},
+
 	/*
 	* Check if there already exists a button with a specified label in a specified button group
 	* @param {object} parent - This should be the `ul` of the button group.
 	* @param {string} selector - CSS Selector of the button to be searched for. By default, it is `li`.
 	* @param {string} label - Label of the button
 	*/
-	is_in_group_button_dropdown: function(parent, selector, label){
+	is_in_group_button_dropdown: function(parent, selector, label) {
+
 		if (!selector) selector = 'li';
 
 		if (!label || !parent) return false;
 
 		const result = $(parent).find(`${selector}:contains('${label}')`)
 			.filter(function() {
-				return $(this).text() === label;
+				let item = $(this).html();
+				return $(item).attr('data-label') === label;
 			});
 		return result.length > 0;
 	},

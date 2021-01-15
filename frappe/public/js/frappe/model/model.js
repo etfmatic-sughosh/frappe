@@ -31,7 +31,7 @@ $.extend(frappe.model, {
 		{fieldname:'docstatus', fieldtype:'Int', label:__('Document Status')},
 	],
 
-	numeric_fieldtypes: ["Int", "Float", "Currency", "Percent"],
+	numeric_fieldtypes: ["Int", "Float", "Currency", "Percent", "Duration"],
 
 	std_fields_table: [
 		{fieldname:'parent', fieldtype:'Data', label:__('Parent')},
@@ -103,6 +103,31 @@ $.extend(frappe.model, {
 		return docfield[0];
 	},
 
+	get_from_localstorage: function(doctype) {
+		if (localStorage["_doctype:" + doctype]) {
+			return JSON.parse(localStorage["_doctype:" + doctype]);
+		}
+	},
+
+	set_in_localstorage: function(doctype, docs) {
+		try {
+			localStorage["_doctype:" + doctype] = JSON.stringify(docs);
+		} catch(e) {
+			// if quota is exceeded, clear local storage and set item
+			console.warn("localStorage quota exceeded, clearing doctype cache")
+			frappe.model.clear_local_storage();
+			localStorage["_doctype:" + doctype] = JSON.stringify(docs);
+		}
+	},
+
+	clear_local_storage: function() {
+		for(var key in localStorage) {
+			if (key.startsWith("_doctype:")) {
+				localStorage.removeItem(key);
+			}
+		}
+	},
+
 	with_doctype: function(doctype, callback, async) {
 		if(locals.DocType[doctype]) {
 			callback && callback();
@@ -110,13 +135,15 @@ $.extend(frappe.model, {
 			let cached_timestamp = null;
 			let cached_doc = null;
 
-			if(localStorage["_doctype:" + doctype]) {
-				let cached_docs = JSON.parse(localStorage["_doctype:" + doctype]);
+			let cached_docs = frappe.model.get_from_localstorage(doctype);
+
+			if (cached_docs) {
 				cached_doc = cached_docs.filter(doc => doc.name === doctype)[0];
 				if(cached_doc) {
 					cached_timestamp = cached_doc.modified;
 				}
 			}
+
 			return frappe.call({
 				method:'frappe.desk.form.load.getdoctype',
 				type: "GET",
@@ -134,7 +161,7 @@ $.extend(frappe.model, {
 					if(r.message=="use_cache") {
 						frappe.model.sync(cached_doc);
 					} else {
-						localStorage["_doctype:" + doctype] = JSON.stringify(r.docs);
+						frappe.model.set_in_localstorage(doctype, r.docs)
 					}
 					frappe.model.init_doctype(doctype);
 
@@ -225,6 +252,10 @@ $.extend(frappe.model, {
 		return frappe.boot.user.can_create.indexOf(doctype)!==-1;
 	},
 
+	can_select: function(doctype) {
+		return frappe.boot.user.can_select.indexOf(doctype)!==-1;
+	},
+
 	can_read: function(doctype) {
 		return frappe.boot.user.can_read.indexOf(doctype)!==-1;
 	},
@@ -266,6 +297,11 @@ $.extend(frappe.model, {
 	is_single: function(doctype) {
 		if(!doctype) return false;
 		return frappe.boot.single_types.indexOf(doctype) != -1;
+	},
+
+	is_tree: function(doctype) {
+		if (!doctype) return false;
+		return frappe.boot.treeviews.indexOf(doctype) != -1;
 	},
 
 	can_import: function(doctype, frm) {
@@ -525,7 +561,13 @@ $.extend(frappe.model, {
 	},
 
 	delete_doc: function(doctype, docname, callback) {
-		frappe.confirm(__("Permanently delete {0}?", [docname]), function() {
+		var title = docname;
+		var title_field = frappe.get_meta(doctype).title_field;
+		if (frappe.get_meta(doctype).autoname == "hash" && title_field) {
+			var title = frappe.model.get_value(doctype, docname, title_field);
+			title += " (" + docname + ")";
+		}
+		frappe.confirm(__("Permanently delete {0}?", [title]), function() {
 			return frappe.call({
 				method: 'frappe.client.delete',
 				args: {
@@ -544,23 +586,28 @@ $.extend(frappe.model, {
 	},
 
 	rename_doc: function(doctype, docname, callback) {
+			let message = __("Merge with existing");
+			let warning = __("This cannot be undone");
+			let merge_label = message + " <b>(" + warning + ")</b>";
+
 		var d = new frappe.ui.Dialog({
 			title: __("Rename {0}", [__(docname)]),
 			fields: [
-				{label:__("New Name"), fieldname: "new_name", fieldtype:"Data", reqd:1, "default": docname},
-				{label:__("Merge with existing"), fieldtype:"Check", fieldname:"merge"},
+				{label: __("New Name"), fieldname: "new_name", fieldtype: "Data", reqd: 1, "default": docname},
+				{label: merge_label, fieldtype: "Check", fieldname: "merge"},
 			]
 		});
+
 		d.set_primary_action(__("Rename"), function() {
 			var args = d.get_values();
 			if(!args) return;
 			return frappe.call({
-				method:"frappe.model.rename_doc.rename_doc",
+				method:"frappe.rename_doc",
 				args: {
 					doctype: doctype,
 					old: docname,
-					"new": args.new_name,
-					"merge": args.merge
+					new: args.new_name,
+					merge: args.merge
 				},
 				btn: d.get_primary_btn(),
 				callback: function(r,rt) {

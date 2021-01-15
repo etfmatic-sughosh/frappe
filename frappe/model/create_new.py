@@ -10,7 +10,7 @@ import copy
 import frappe
 import frappe.defaults
 from frappe.model import data_fieldtypes
-from frappe.utils import nowdate, nowtime, now_datetime
+from frappe.utils import nowdate, nowtime, now_datetime, cstr
 from frappe.core.doctype.user_permission.user_permission import get_user_permissions
 from frappe.permissions import filter_allowed_docs_for_doctype
 
@@ -46,6 +46,9 @@ def make_new_doc(doctype):
 	doc["doctype"] = doctype
 	doc["__islocal"] = 1
 
+	if not frappe.model.meta.is_single(doctype):
+		doc["__unsaved"] = 1
+
 	return doc
 
 def set_user_and_static_default_values(doc):
@@ -61,7 +64,9 @@ def set_user_and_static_default_values(doc):
 
 			user_default_value = get_user_default_value(df, defaults, doctype_user_permissions, allowed_records, default_doc)
 			if user_default_value is not None:
-				doc.set(df.fieldname, user_default_value)
+				# if fieldtype is link check if doc exists
+				if not df.fieldtype == "Link" or frappe.db.exists(df.options, user_default_value):
+					doc.set(df.fieldname, user_default_value)
 
 			else:
 				if df.fieldname != doc.meta.title_field:
@@ -72,11 +77,9 @@ def set_user_and_static_default_values(doc):
 def get_user_default_value(df, defaults, doctype_user_permissions, allowed_records, default_doc):
 	# don't set defaults for "User" link field using User Permissions!
 	if df.fieldtype == "Link" and df.options != "User":
-		# 1 - look in user permissions only for document_type==Setup
-		# We don't want to include permissions of transactions to be used for defaults.
-		if (frappe.get_meta(df.options).document_type=="Setup"
-			and not df.ignore_user_permissions and default_doc):
-				return default_doc
+		# If user permission has Is Default enabled or single-user permission has found against respective doctype.
+		if (not df.ignore_user_permissions and default_doc):
+			return default_doc
 
 		# 2 - Look in user defaults
 		user_default = defaults.get(df.fieldname)
@@ -96,7 +99,7 @@ def get_static_default_value(df, doctype_user_permissions, allowed_records):
 		elif df.default == "Today":
 			return nowdate()
 
-		elif not df.default.startswith(":"):
+		elif not cstr(df.default).startswith(":"):
 			# a simple default value
 			is_allowed_default_value = (not user_permissions_exist(df, doctype_user_permissions)
 				or (df.default in allowed_records))
@@ -113,7 +116,7 @@ def set_dynamic_default_values(doc, parent_doc, parentfield):
 
 	for df in frappe.get_meta(doc["doctype"]).get("fields"):
 		if df.get("default"):
-			if df.default.startswith(":"):
+			if cstr(df.default).startswith(":"):
 				default_value = get_default_based_on_another_field(df, user_permissions, parent_doc)
 				if default_value is not None and not doc.get(df.fieldname):
 					doc[df.fieldname] = default_value

@@ -14,7 +14,7 @@ frappe.views.TreeFactory = class TreeFactory extends frappe.views.Factory {
 			};
 
 			if (!frappe.treeview_settings[route[1]] && !frappe.meta.get_docfield(route[1], "is_group")) {
-				frappe.msgprint(__("Tree view not available for {0}", [route[1]] ));
+				frappe.msgprint(__("Tree view is not available for {0}", [route[1]] ));
 				return false;
 			}
 			$.extend(options, frappe.treeview_settings[route[1]] || {});
@@ -39,6 +39,7 @@ frappe.views.TreeView = Class.extend({
 		this.get_permissions();
 		this.make_page();
 		this.make_filters();
+		this.root_value = null;
 
 		if (me.opts.get_tree_root) {
 			this.get_root();
@@ -62,7 +63,7 @@ frappe.views.TreeView = Class.extend({
 
 		this.page = this.parent.page;
 		frappe.container.change_to(this.page_name);
-		frappe.breadcrumbs.add(me.opts.breadcrumb || locals.DocType[me.doctype].module);
+		frappe.breadcrumbs.add(me.opts.breadcrumb || locals.DocType[me.doctype].module, me.doctype);
 
 		this.set_title();
 
@@ -92,17 +93,17 @@ frappe.views.TreeView = Class.extend({
 		var me = this;
 		this.opts.onload && this.opts.onload(me);
 	},
-	make_filters: function(){
+	make_filters: function() {
 		var me = this;
 		frappe.treeview_settings.filters = []
 		$.each(this.opts.filters || [], function(i, filter) {
-			if(frappe.route_options && frappe.route_options[filter.fieldname]) {
-				filter.default = frappe.route_options[filter.fieldname]
+			if (frappe.route_options && frappe.route_options[filter.fieldname]) {
+				filter.default = frappe.route_options[filter.fieldname];
 			}
 
-			if(!filter.disable_onchange) {
+			if (!filter.disable_onchange) {
 				filter.change = function() {
-					filter.on_change && filter.on_change();
+					filter.onchange && filter.onchange();
 					var val = this.get_value();
 					me.args[filter.fieldname] = val;
 					if (val) {
@@ -112,7 +113,7 @@ frappe.views.TreeView = Class.extend({
 					}
 					me.set_title();
 					me.make_tree();
-				}
+				};
 			}
 
 			me.page.add_field(filter);
@@ -120,7 +121,7 @@ frappe.views.TreeView = Class.extend({
 			if (filter.default) {
 				$("[data-fieldname='"+filter.fieldname+"']").trigger("change");
 			}
-		})
+		});
 	},
 	get_root: function() {
 		var me = this;
@@ -129,7 +130,13 @@ frappe.views.TreeView = Class.extend({
 			args: me.args,
 			callback: function(r) {
 				if (r.message) {
-					me.root_label = r.message[0]["value"];
+					if (r.message.length > 1) {
+						me.root_label = me.doctype;
+						me.root_value = "";
+					} else {
+						me.root_label = r.message[0]["value"];
+						me.root_value = me.root_label;
+					}
 					me.make_tree();
 				}
 			}
@@ -138,9 +145,15 @@ frappe.views.TreeView = Class.extend({
 	make_tree: function() {
 		$(this.parent).find(".tree").remove();
 
+		var use_label = this.args[this.opts.root_label] || this.root_label || this.opts.root_label;
+		var use_value = this.root_value;
+		if (use_value == null) {
+			use_value = use_label;
+		}
 		this.tree = new frappe.ui.Tree({
 			parent: this.body,
-			label: this.args[this.opts.root_label] || this.root_label || this.opts.root_label,
+			label: use_label,
+			root_value: use_value,
 			expandable: true,
 
 			args: this.args,
@@ -335,6 +348,15 @@ frappe.views.TreeView = Class.extend({
 		frappe.ui.get_print_settings(false, function(print_settings) {
 			var title =  __(me.docname || me.doctype);
 			frappe.render_tree({title: title, tree: tree, print_settings:print_settings});
+			frappe.call({
+				method: "frappe.core.doctype.access_log.access_log.make_access_log",
+				args: {
+					doctype: me.doctype,
+					report_name: me.page_name,
+					page: tree,
+					method: 'Print'
+				}
+			});
 		});
 	},
 	set_primary_action: function(){

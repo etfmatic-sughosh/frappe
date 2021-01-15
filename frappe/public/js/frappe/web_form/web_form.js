@@ -30,6 +30,7 @@ export default class WebForm extends frappe.ui.FieldGroup {
 		// webform client script
 		frappe.init_client_script && frappe.init_client_script();
 		frappe.web_form.events.trigger('after_load');
+		this.after_load && this.after_load();
 	}
 
 	on(fieldname, handler) {
@@ -40,8 +41,14 @@ export default class WebForm extends frappe.ui.FieldGroup {
 	}
 
 	set_field_values() {
-		if (this.doc_name) this.set_values(this.doc);
+		if (this.doc.name) this.set_values(this.doc);
 		else return;
+	}
+
+	set_default_values() {
+		let values = frappe.utils.get_query_params();
+		delete values.new;
+		this.set_values(values);
 	}
 
 	set_form_description(intro) {
@@ -49,50 +56,69 @@ export default class WebForm extends frappe.ui.FieldGroup {
 		intro_wrapper.innerHTML = intro;
 	}
 
-	add_button(name, type, action) {
+	add_button(name, type, action, wrapper_class=".web-form-actions") {
 		const button = document.createElement("button");
 		button.classList.add("btn", "btn-" + type, "btn-sm", "ml-2");
 		button.innerHTML = name;
 		button.onclick = action;
-		document.querySelector(".web-form-actions").appendChild(button);
+		document.querySelector(wrapper_class).appendChild(button);
+	}
+
+	add_button_to_footer(name, type, action) {
+		this.add_button(name, type, action, '.web-form-footer');
+	}
+
+	add_button_to_header(name, type, action) {
+		this.add_button(name, type, action, '.web-form-actions');
 	}
 
 	setup_primary_action() {
-		this.add_button(this.button_label || "Save", "primary", () =>
+		this.add_button_to_header(this.button_label || "Save", "primary", () =>
+			this.save()
+		);
+
+		this.add_button_to_footer(this.button_label || "Save", "primary", () =>
 			this.save()
 		);
 	}
 
 	setup_cancel_button() {
-		this.add_button("Cancel", "light", () => this.cancel());
+		this.add_button_to_header(__("Cancel"), "light", () => this.cancel());
 	}
 
 	setup_delete_button() {
-		this.add_button("Delete", "danger", () => this.delete());
+		this.add_button_to_header(
+			'<i class="fa fa-trash" aria-hidden="true"></i>',
+			"light",
+			() => this.delete()
+		);
 	}
 
 	setup_print_button() {
-		this.add_button(
+		this.add_button_to_header(
 			'<i class="fa fa-print" aria-hidden="true"></i>',
 			"light",
 			() => this.print()
 		);
 	}
 
-	get_values(ignore_errors) {
-		let values = super.get_values(ignore_errors);
-		values.doctype = this.doc_type;
-		values.name = this.doc_name;
-		values.web_form_name = this.name;
-		return values;
-	}
-
 	save() {
-		this.validate && this.validate();
+		let is_new = this.is_new;
+		if (this.validate && !this.validate()) {
+			frappe.throw(__("Couldn't save, please check the data you have entered"), __("Validation Error"));
+		}
 
+		// validation hack: get_values will check for missing data
+		let doc_values = super.get_values(this.allow_incomplete);
+
+		if (!doc_values) return;
+
+		if (window.saving) return;
 		let for_payment = Boolean(this.accept_payment && !this.doc.paid);
-		let data = this.get_values(this.allow_incomplete);
-		if (!data || window.saving) return;
+
+		Object.assign(this.doc, doc_values);
+		this.doc.doctype = this.doc_type;
+		this.doc.web_form_name = this.name;
 
 		// Save
 		window.saving = true;
@@ -102,7 +128,7 @@ export default class WebForm extends frappe.ui.FieldGroup {
 			type: "POST",
 			method: "frappe.website.doctype.web_form.web_form.accept",
 			args: {
-				data: data,
+				data: this.doc,
 				web_form: this.name,
 				docname: this.doc.name,
 				for_payment
@@ -113,6 +139,19 @@ export default class WebForm extends frappe.ui.FieldGroup {
 					// Success
 					this.handle_success(response.message);
 					frappe.web_form.events.trigger('after_save');
+					this.after_save && this.after_save();
+					// args doctype and docname added to link doctype in file manager
+					if (is_new) {
+						frappe.call({
+							type: 'POST',
+							method: "frappe.handler.upload_file",
+							args: {
+								file_url: response.message.attachment,
+								doctype: response.message.doctype,
+								docname: response.message.name
+							}
+						});
+					}
 				}
 			},
 			always: function() {
@@ -134,10 +173,10 @@ export default class WebForm extends frappe.ui.FieldGroup {
 	}
 
 	print() {
-		window.location.href = `/printview?
+		window.open(`/printview?
 			doctype=${this.doc_type}
 			&name=${this.doc.name}
-			&format=${this.print_format || "Standard"}`;
+			&format=${this.print_format || "Standard"}`, '_blank');
 	}
 
 	cancel() {
@@ -152,13 +191,11 @@ export default class WebForm extends frappe.ui.FieldGroup {
 		const success_dialog = new frappe.ui.Dialog({
 			title: __("Saved Successfully"),
 			secondary_action: () => {
-				if (this.login_required) {
-					if (this.route_to_success_link) {
-						window.location.pathname = this.success_url;
-					} else {
-						window.location.href =
-							window.location.pathname + "?name=" + data.name;
-					}
+				if (this.success_url) {
+					window.location.href = this.success_url;
+				} else if(this.login_required) {
+					window.location.href =
+						window.location.pathname + "?name=" + data.name;
 				}
 			}
 		});

@@ -12,6 +12,7 @@ frappe.route_history = [];
 frappe.view_factory = {};
 frappe.view_factories = [];
 frappe.route_options = null;
+frappe.route_hooks = {};
 
 frappe.route = function() {
 
@@ -46,8 +47,11 @@ frappe.route = function() {
 
 	if(route[0]) {
 		const title_cased_route = frappe.utils.to_title_case(route[0]);
+		if (title_cased_route === 'Workspace') {
+			frappe.views.pageview.show('');
+		}
 
-		if(route[1] && frappe.views[title_cased_route + "Factory"]) {
+		if (route[1] && frappe.views[title_cased_route + "Factory"]) {
 			// has a view generator, generate!
 			if(!frappe.view_factory[title_cased_route]) {
 				frappe.view_factory[title_cased_route] = new frappe.views[title_cased_route + "Factory"]();
@@ -164,7 +168,14 @@ frappe.set_route = function() {
 			}
 		}).join('/');
 
-		window.location.hash = route;
+		// Perform a redirect when redirect is set in route_options
+		if (frappe.route_options && frappe.route_options.redirect) {
+			const url = new URL(window.location);
+			url.hash = route;
+			window.location.replace(url);
+		} else {
+			window.location.hash = route;
+		}
 
 		// Set favicon (app.js)
 		frappe.provide('frappe.app');
@@ -197,7 +208,7 @@ $(window).on('hashchange', function() {
 		return;
 
 	// hide open dialog
-	if(window.cur_dialog && cur_dialog.hide_on_page_refresh) {
+	if(window.cur_dialog) {
 		if (!cur_dialog.minimizable) {
 			cur_dialog.hide();
 		} else if (!cur_dialog.is_minimized) {

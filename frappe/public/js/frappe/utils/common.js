@@ -108,7 +108,7 @@ window.replace_all = function(s, t1, t2) {
 }
 
 window.strip_html = function(txt) {
-	return txt.replace(/<[^>]*>/g, "");
+	return cstr(txt).replace(/<[^>]*>/g, "");
 }
 
 window.strip = function(s, chars) {
@@ -234,11 +234,11 @@ frappe.utils.xss_sanitise = function (string, options) {
 		strategies: ['html', 'js'] // use all strategies.
 	}
 	const HTML_ESCAPE_MAP = {
-		'<': '&lt',
-		'>': '&gt',
-		'"': '&quot',
-		"'": '&#x27',
-		'/': '&#x2F'
+		'<': '&lt;',
+		'>': '&gt;',
+		'"': '&quot;',
+		"'": '&#x27;',
+		'/': '&#x2F;'
 	};
 	const REGEX_SCRIPT     = /<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi; // used in jQuery 1.7.2 src/ajax.js Line 14
 	options          	   = Object.assign({ }, DEFAULT_OPTIONS, options); // don't deep copy, immutable beauty.
@@ -259,3 +259,103 @@ frappe.utils.xss_sanitise = function (string, options) {
 
 	return sanitised;
 }
+
+frappe.utils.sanitise_redirect = (url) => {
+	const is_external = (() => {
+		return (url) => {
+			function domain(url) {
+				let base_domain = /^(?:https?:\/\/)?(?:[^@\n]+@)?(?:www\.)?([^:/\n?]+)/img.exec(url);
+				return base_domain == null ? "" : base_domain[1];
+			}
+
+			function is_absolute(url) {
+				// returns true for url that have a defined scheme
+				// anything else, eg. internal urls return false
+				return /^(?:[a-z]+:)?\/\//i.test(url);
+			}
+
+			// check for base domain only if the url is absolute
+			// return true for relative url (except protocol-relative urls)
+			return is_absolute(url) ? domain(location.href) !== domain(url) : false;
+		}
+	})();
+
+	const sanitise_javascript = ((url) => {
+		// please do not ask how or why
+		const REGEX_SCRIPT = /j[\s]*(&#x.{1,7})?a[\s]*(&#x.{1,7})?v[\s]*(&#x.{1,7})?a[\s]*(&#x.{1,7})?s[\s]*(&#x.{1,7})?c[\s]*(&#x.{1,7})?r[\s]*(&#x.{1,7})?i[\s]*(&#x.{1,7})?p[\s]*(&#x.{1,7})?t/gi;
+
+		return url.replace(REGEX_SCRIPT, "");
+	});
+
+	url = frappe.utils.strip_url(url);
+
+	return is_external(url) ? "" : sanitise_javascript(frappe.utils.xss_sanitise(url, {strategies: ["js"]}));
+};
+
+frappe.utils.strip_url = (url) => {
+	// strips invalid characters from the beginning of the URL
+	// in our case, the url can start with either a protocol, //, or even #
+	// so anything except those characters can be considered invalid
+	return url.replace(/^[^A-Za-z0-9(//)#]+/g, '');
+}
+
+frappe.utils.new_auto_repeat_prompt = function(frm) {
+	const fields = [
+		{
+			'fieldname': 'frequency',
+			'fieldtype': 'Select',
+			'label': __('Frequency'),
+			'reqd': 1,
+			'options': [
+				{'label': __('Daily'), 'value': 'Daily'},
+				{'label': __('Weekly'), 'value': 'Weekly'},
+				{'label': __('Monthly'), 'value': 'Monthly'},
+				{'label': __('Quarterly'), 'value': 'Quarterly'},
+				{'label': __('Half-yearly'), 'value': 'Half-yearly'},
+				{'label': __('Yearly'), 'value': 'Yearly'}
+			]
+		},
+		{
+			'fieldname': 'start_date',
+			'fieldtype': 'Date',
+			'label': __('Start Date'),
+			'reqd': 1,
+			'default': frappe.datetime.nowdate()
+		},
+		{
+			'fieldname': 'end_date',
+			'fieldtype': 'Date',
+			'label': __('End Date')
+		}
+	];
+	frappe.prompt(fields, function(values) {
+		frappe.call({
+			method: "frappe.automation.doctype.auto_repeat.auto_repeat.make_auto_repeat",
+			args: {
+				'doctype': frm.doc.doctype,
+				'docname': frm.doc.name,
+				'frequency': values['frequency'],
+				'start_date': values['start_date'],
+				'end_date': values['end_date']
+			},
+			callback: function (r) {
+				if (r.message) {
+					frappe.show_alert({
+						'message': __("Auto Repeat created for this document"),
+						'indicator': 'green'
+					});
+					frm.reload_doc();
+				}
+			}
+		});
+	},
+	__('Auto Repeat'),
+	__('Save')
+	);
+}
+
+frappe.utils.get_page_view_count = function(route) {
+	return frappe.call("frappe.website.doctype.web_page_view.web_page_view.get_page_view_count", {
+		path: route
+	});
+};

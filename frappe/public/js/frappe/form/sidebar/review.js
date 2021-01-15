@@ -21,6 +21,12 @@ frappe.ui.form.Review = class Review {
 		});
 	}
 	make_review_container() {
+		this.parent.append(`
+			<ul class="list-unstyled sidebar-menu">
+				<li class="h6 reviews-label">${__('Reviews')}</li>
+				<li class="review-list"></li>
+			</ul>
+		`);
 		this.review_list_wrapper = this.parent.find('.review-list');
 	}
 	add_review_button() {
@@ -72,14 +78,15 @@ frappe.ui.form.Review = class Review {
 	}
 	show_review_dialog() {
 		const user_options = this.get_involved_users();
-		const doc_owner = this.frm.doc.owner;
 		const review_dialog = new frappe.ui.Dialog({
 			'title': __('Add Review'),
 			'fields': [{
 				fieldname: 'to_user',
 				fieldtype: 'Autocomplete',
 				label: __('To User'),
+				reqd: 1,
 				options: user_options,
+				ignore_validation: 1,
 				description: __('Only users involved in the document are listed')
 			}, {
 				fieldname: 'review_type',
@@ -98,7 +105,7 @@ frappe.ui.form.Review = class Review {
 				fieldtype: 'Int',
 				label: __('Points'),
 				reqd: 1,
-				description: __(`Currently you have ${this.points.review_points} review points`)
+				description: __("Currently you have {0} review points", [this.points.review_points])
 			}, {
 				fieldtype: 'Small Text',
 				fieldname: 'reason',
@@ -173,7 +180,7 @@ frappe.ui.form.Review = class Review {
 			trigger: 'hover',
 			delay: 500,
 			placement: 'top',
-			template:`
+			template: `
 				<div class="review-popover popover">
 					<div class="arrow"></div>
 					<div class="popover-content"></div>

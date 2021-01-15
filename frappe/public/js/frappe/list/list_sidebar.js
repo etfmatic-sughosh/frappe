@@ -13,8 +13,6 @@ frappe.views.ListSidebar = class ListSidebar {
 	constructor(opts) {
 		$.extend(this, opts);
 		this.make();
-		this.get_stats();
-		this.cat_tags = [];
 	}
 
 	make() {
@@ -31,20 +29,19 @@ frappe.views.ListSidebar = class ListSidebar {
 		this.setup_calendar_view();
 		this.setup_email_inbox();
 		this.setup_keyboard_shortcuts();
+		this.setup_list_group_by();
 
-		let limits = frappe.boot.limits;
+		// do not remove
+		// used to trigger custom scripts
+		$(document).trigger('list_sidebar_setup');
 
-		if (limits.upgrade_url && limits.expiry && !frappe.flags.upgrade_dismissed) {
-			this.setup_upgrade_box();
+		if (this.list_view.list_view_settings && this.list_view.list_view_settings.disable_sidebar_stats) {
+			this.sidebar.find('.sidebar-stat').remove();
+		} else {
+			this.sidebar.find('.list-stats').on('click', (e) => {
+				this.reload_stats();
+			});
 		}
-
-		if(this.doctype !== 'ToDo') {
-			$('.assigned-to').show();
-		}
-		$('.assigned-to').on('click', () => {
-			$('.assigned').remove();
-			this.setup_assigned_to();
-		});
 
 	}
 
@@ -63,7 +60,7 @@ frappe.views.ListSidebar = class ListSidebar {
 			show_list_link = true;
 		}
 
-		if (frappe.treeview_settings[this.doctype]) {
+		if (frappe.treeview_settings[this.doctype] || frappe.get_meta(this.doctype).is_tree) {
 			this.sidebar.find(".tree-link").removeClass("hide");
 		}
 
@@ -90,6 +87,14 @@ frappe.views.ListSidebar = class ListSidebar {
 		// show image link if image_view
 		if (this.list_view.meta.image_field) {
 			this.sidebar.find('.list-link[data-view="Image"]').removeClass('hide');
+			show_list_link = true;
+		}
+		
+		if (this.list_view.settings.get_coords_method ||
+			(this.list_view.meta.fields.find(i => i.fieldname === "latitude") &&
+			this.list_view.meta.fields.find(i => i.fieldname === "longitude")) ||
+			(this.list_view.meta.fields.find(i => i.fieldname === 'location' && i.fieldtype == 'Geolocation'))) {
+			this.sidebar.find('.list-link[data-view="Map"]').removeClass('hide');
 			show_list_link = true;
 		}
 
@@ -162,7 +167,7 @@ frappe.views.ListSidebar = class ListSidebar {
 				reference_doctype: doctype
 			}
 		}).then(result => {
-			if (!result) return;
+			if (!(result && Array.isArray(result) && result.length)) return;
 			const calendar_views = result;
 			const $link_calendar = this.sidebar.find('.list-link[data-view="Calendar"]');
 
@@ -211,42 +216,19 @@ frappe.views.ListSidebar = class ListSidebar {
 		accounts.forEach((account) => {
 			let email_account = (account.email_id == "All Accounts") ? "All Accounts" : account.email_account;
 			let route = ["List", "Communication", "Inbox", email_account].join('/');
+			let display_name = ["All Accounts", "Sent Mail", "Spam", "Trash"].includes(account.email_id) ? __(account.email_id) : account.email_id;
+
 			if (!divider) {
 				this.get_divider().appendTo($dropdown);
 				divider = true;
 			}
-			$(`<li><a href="#${route}">${account.email_id}</a></li>`).appendTo($dropdown);
+			$(`<li><a href="#${route}">${display_name}</a></li>`).appendTo($dropdown);
 			if (account.email_id === "Sent Mail")
 				divider = false;
 		});
 
 		$dropdown.find('.new-email-account').click(function() {
 			frappe.new_doc("Email Account");
-		});
-	}
-
-	setup_assigned_to() {
-		$('.assigned-loading').show();
-		let dropdown = this.page.sidebar.find('.assigned-dropdown');
-		let current_filters = this.list_view.get_filters_for_args();
-
-		frappe.call('frappe.desk.listview.get_user_assignments_and_count', {doctype: this.doctype, current_filters: current_filters}).then((data) => {
-			$('.assigned-loading').hide();
-			let current_user  = data.message.find(user => user.name === frappe.session.user);
-			if(current_user) {
-				let current_user_count = current_user.count;
-				this.get_html_for_assigned(frappe.session.user, current_user_count).appendTo(dropdown);
-			}
-			let user_list = data.message.filter(user => !['Guest', frappe.session.user, 'Administrator'].includes(user.name) && user.count!==0 );
-			user_list.forEach((user) => {
-				this.get_html_for_assigned(user.name, user.count).appendTo(dropdown);
-			});
-			$(".assigned-dropdown li a").on("click", (e) => {
-				let assigned_user = $(e.currentTarget).find($('.assigned-user')).text();
-				if(assigned_user === 'Me') assigned_user = frappe.session.user;
-				this.list_view.filter_area.remove('_assign');
-				this.list_view.filter_area.add(this.list_view.doctype, "_assign", "like", `%${assigned_user}%`);
-			});
 		});
 	}
 
@@ -258,85 +240,30 @@ frappe.views.ListSidebar = class ListSidebar {
 		});
 	}
 
-	get_html_for_assigned(name, count) {
-		if (name === frappe.session.user) name='Me';
-		if (count > 99) count='99+';
-		let html = $('<li class="assigned"><a class="badge-hover" href="#" onclick="return false;" role="assigned-item"><span class="assigned-user">'
-					+ name + '</span><span class="badge pull-right" style="position:relative">' + count + '</span></a></li>');
-		return html;
-	}
-
-	setup_upgrade_box() {
-		let upgrade_list = $(`<ul class="list-unstyled sidebar-menu"></ul>`).appendTo(this.sidebar);
-
-		// Show Renew/Upgrade button,
-		// if account is holding one user free plan or
-		// if account's expiry date within range of 30 days from today's date
-
-		let upgrade_date = frappe.datetime.add_days(frappe.datetime.get_today(), 30);
-		if (frappe.boot.limits.users === 1 || upgrade_date >= frappe.boot.limits.expiry) {
-			let upgrade_box = $(`<div class="border" style="
-					padding: 0px 10px;
-					border-radius: 3px;
-				">
-				<a><i class="octicon octicon-x pull-right close" style="margin-top: 10px;"></i></a>
-				<h5>Go Premium</h5>
-				<p>Upgrade to a premium plan with more users, storage and priority support.</p>
-				<button class="btn btn-xs btn-default btn-upgrade" style="margin-bottom: 10px;"> Renew / Upgrade </button>
-				</div>`).appendTo(upgrade_list);
-
-			upgrade_box.find('.btn-upgrade').on('click', () => {
-				frappe.set_route('usage-info');
-			});
-
-			upgrade_box.find('.close').on('click', () => {
-				upgrade_list.remove();
-				frappe.flags.upgrade_dismissed = 1;
-			});
-		}
-	}
-
-	get_cat_tags() {
-		return this.cat_tags;
+	setup_list_group_by() {
+		this.list_group_by = new frappe.views.ListGroupBy({
+			doctype: this.doctype,
+			sidebar: this,
+			list_view: this.list_view,
+			page: this.page
+		});
 	}
 
 	get_stats() {
 		var me = this;
-		if (this.list_view.list_view_settings && this.list_view.list_view_settings.disable_sidebar_stats) {
-			return;
-		}
 		frappe.call({
 			method: 'frappe.desk.reportview.get_sidebar_stats',
 			type: 'GET',
 			args: {
 				stats: me.stats,
 				doctype: me.doctype,
-				filters: me.default_filters || []
+				// wait for list filter area to be generated before getting filters, or fallback to default filters
+				filters: (me.list_view.filter_area ? me.list_filter.get_current_filters() : me.default_filters) || []
 			},
 			callback: function(r) {
-				me.defined_category = r.message;
-				if (r.message.defined_cat) {
-					me.defined_category = r.message.defined_cat;
-					me.cats = {};
-					//structure the tag categories
-					for (var i in me.defined_category) {
-						if (me.cats[me.defined_category[i].category] === undefined) {
-							me.cats[me.defined_category[i].category] = [me.defined_category[i].tag];
-						} else {
-							me.cats[me.defined_category[i].category].push(me.defined_category[i].tag);
-						}
-						me.cat_tags[i] = me.defined_category[i].tag;
-					}
-					me.tempstats = r.message.stats;
-
-					$.each(me.cats, function(i, v) {
-						me.render_stat(i, (me.tempstats || {})["_user_tags"], v);
-					});
-					me.render_stat("_user_tags", (me.tempstats || {})["_user_tags"]);
-				} else {
-					//render normal stats
-					me.render_stat("_user_tags", (r.message.stats || {})["_user_tags"]);
-				}
+				me.render_stat("_user_tags", (r.message.stats || {})["_user_tags"]);
+				let stats_dropdown = me.sidebar.find('.list-stats-dropdown');
+				frappe.utils.setup_search(stats_dropdown, '.stat-link', '.stat-label');
 			}
 		});
 	}
@@ -399,38 +326,12 @@ frappe.views.ListSidebar = class ListSidebar {
 						me.list_view.refresh();
 					});
 			})
-			.insertBefore(this.sidebar.find(".close-sidebar-button"));
-	}
-
-	set_fieldtype(df) {
-
-		// scrub
-		if (df.fieldname == "docstatus") {
-			df.fieldtype = "Select",
-			df.options = [
-				{ value: 0, label: "Draft" },
-				{ value: 1, label: "Submitted" },
-				{ value: 2, label: "Cancelled" },
-			];
-		} else if (df.fieldtype == 'Check') {
-			df.fieldtype = 'Select';
-			df.options = [{ value: 0, label: 'No' },
-				{ value: 1, label: 'Yes' }
-			];
-		} else if (['Text', 'Small Text', 'Text Editor', 'Code', 'Tag', 'Comments',
-			'Dynamic Link', 'Read Only', 'Assign'
-		].indexOf(df.fieldtype) != -1) {
-			df.fieldtype = 'Data';
-		} else if (df.fieldtype == 'Link' && this.$w.find('.condition').val() != "=") {
-			df.fieldtype = 'Data';
-		}
-		if (df.fieldtype === "Data" && (df.options || "").toLowerCase() === "email") {
-			df.options = null;
-		}
+			.appendTo(this.sidebar.find(".list-stats-dropdown"));
 	}
 
 	reload_stats() {
-		this.sidebar.find(".sidebar-stat").remove();
+		this.sidebar.find(".stat-link").remove();
+		this.sidebar.find(".stat-no-records").remove();
 		this.get_stats();
 	}
 

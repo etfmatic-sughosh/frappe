@@ -9,12 +9,16 @@ export default class GridRowForm {
 		var me = this;
 		this.make_form();
 		this.form_area.empty();
+		frappe.utils.scroll_to(0, false, 0, this.wrapper.find('.grid-form-body'));
 
 		this.layout = new frappe.ui.form.Layout({
 			fields: this.row.docfields,
 			body: this.form_area,
 			no_submit_on_enter: true,
 			frm: this.row.frm,
+			grid: this.row.grid,
+			grid_row: this.row,
+			grid_row_form: this,
 		});
 		this.layout.make();
 

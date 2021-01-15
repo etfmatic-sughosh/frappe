@@ -2,9 +2,14 @@
 # MIT License. See license.txt
 from __future__ import unicode_literals
 
-import frappe, unittest, os
-from frappe.utils import cint
+import os
+import unittest
+
+import frappe
+from frappe.utils import cint, add_to_date, now
 from frappe.model.naming import revert_series_if_last, make_autoname, parse_naming_series
+from frappe.exceptions import DoesNotExistError
+
 
 class TestDocument(unittest.TestCase):
 	def test_get_return_empty_list_for_table_field_if_none(self):
@@ -60,6 +65,13 @@ class TestDocument(unittest.TestCase):
 		d.save()
 
 		self.assertEqual(frappe.db.get_value(d.doctype, d.name, "subject"), "subject changed")
+
+	def test_value_changed(self):
+		d = self.test_insert()
+		d.subject = "subject changed again"
+		d.save()
+		self.assertTrue(d.has_value_changed('subject'))
+		self.assertFalse(d.has_value_changed('event_type'))
 
 	def test_mandatory(self):
 		# TODO: recheck if it is OK to force delete
@@ -176,7 +188,7 @@ class TestDocument(unittest.TestCase):
 
 		# css attributes
 		xss = '<div style="something: doesn\'t work; color: red;">Test</div>'
-		escaped_xss = '<div style="color: red;">Test</div>'
+		escaped_xss = '<div style="">Test</div>'
 		d.subject += xss
 		d.save()
 		d.reload()
@@ -236,3 +248,20 @@ class TestDocument(unittest.TestCase):
 			new_current = cint(frappe.db.get_value('Series', prefix, "current", order_by="name"))
 
 			self.assertEqual(cint(old_current) - 1, new_current)
+
+	def test_non_negative_check(self):
+		frappe.delete_doc_if_exists("Currency", "Frappe Coin", 1)
+
+		d = frappe.get_doc({
+			'doctype': 'Currency',
+			'currency_name': 'Frappe Coin',
+			'smallest_currency_fraction_value': -1
+		})
+
+		self.assertRaises(frappe.NonNegativeError, d.insert)
+
+		d.set('smallest_currency_fraction_value', 1)
+		d.insert()
+		self.assertEqual(frappe.db.get_value("Currency", d.name), d.name)
+
+		frappe.delete_doc_if_exists("Currency", "Frappe Coin", 1)

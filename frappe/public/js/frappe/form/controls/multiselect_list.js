@@ -2,8 +2,8 @@ frappe.ui.form.ControlMultiSelectList = frappe.ui.form.ControlData.extend({
 	make_input() {
 		let template  = `
 			<div class="multiselect-list dropdown">
-				<div class="form-control cursor-pointer dropdown-toggle input-sm" data-toggle="dropdown">
-					<span class="status-text ellipsis"></span>
+				<div class="form-control cursor-pointer dropdown-toggle input-sm" data-toggle="dropdown" tabindex=0>
+					<div class="status-text ellipsis"></div>
 				</div>
 				<ul class="dropdown-menu">
 					<li class="dropdown-input-wrapper">
@@ -17,6 +17,8 @@ frappe.ui.form.ControlMultiSelectList = frappe.ui.form.ControlData.extend({
 
 		this.$list_wrapper = $(template);
 		this.$input = $('<input>');
+		this.input = this.$input.get(0);
+		this.has_input = true;
 		this.$list_wrapper.prependTo(this.input_area);
 		this.$filter_input = this.$list_wrapper.find('input');
 		this.$list_wrapper.on('click', '.dropdown-menu', e => {
@@ -35,10 +37,10 @@ frappe.ui.form.ControlMultiSelectList = frappe.ui.form.ControlData.extend({
 						if (this.values.includes(opt.value)) {
 							return true;
 						}
-						match = Awesomplete.FILTER_CONTAINS(opt.label, txt);
-						if (!match) {
-							match = Awesomplete.FILTER_CONTAINS(opt.value, txt);
-						}
+						match = Awesomplete.FILTER_CONTAINS(opt.label, txt)
+							|| Awesomplete.FILTER_CONTAINS(opt.value, txt)
+							|| Awesomplete.FILTER_CONTAINS(opt.description, txt);
+
 						return match;
 					});
 					let options = this._selected_values
@@ -60,6 +62,15 @@ frappe.ui.form.ControlMultiSelectList = frappe.ui.form.ControlData.extend({
 			}
 		});
 
+		this.$list_wrapper.on('keydown', e => {
+			if ($(e.target).is('input')) {
+				return;
+			}
+			if (e.key === 'Backspace') {
+				this.set_value([]);
+			}
+		});
+
 		this.$list_wrapper.on('show.bs.dropdown', () => {
 			this.set_options()
 				.then(() => {
@@ -69,6 +80,8 @@ frappe.ui.form.ControlMultiSelectList = frappe.ui.form.ControlData.extend({
 
 		this.set_input_attributes();
 		this.values = [];
+		this._options = [];
+		this._selected_values = [];
 		this.highlighted = -1;
 	},
 
@@ -104,6 +117,20 @@ frappe.ui.form.ControlMultiSelectList = frappe.ui.form.ControlData.extend({
 		this.update_status();
 	},
 
+	set_value(value) {
+		if (!value) return Promise.resolve();
+		if (typeof value === 'string') {
+			value = [value];
+		}
+		this.values = value;
+		this.values.forEach(value => {
+			this.update_selected_values(value);
+		});
+		this.parse_validate_and_set_in_model('');
+		this.update_status();
+		return Promise.resolve();
+	},
+
 	update_selected_values(value) {
 		this._selected_values = this._selected_values || [];
 		let option = this._options.find(opt => opt.value === value);
@@ -122,7 +149,8 @@ frappe.ui.form.ControlMultiSelectList = frappe.ui.form.ControlData.extend({
 			text = this.get_placeholder_text();
 		} else if (this.values.length === 1) {
 			let val = this.values[0];
-			text = this._options.find(opt => opt.value === val).label;
+			let option = this._options.find(opt => opt.value === val);
+			text = option ? option.label : val;
 		} else {
 			text = __('{0} values selected', [this.values.length]);
 		}
@@ -178,8 +206,11 @@ frappe.ui.form.ControlMultiSelectList = frappe.ui.form.ControlData.extend({
 			let encoded_value = encodeURIComponent(option.value);
 			let selected = this.values.includes(option.value) ? 'selected' : '';
 			return `<li class="selectable-item ${selected}" data-value="${encoded_value}">
-				${option.label}
-				<span class="octicon octicon-check text-muted"></span>
+				<div>
+					<strong>${option.label}</strong>
+					<div class="small">${option.description}</div>
+				</div>
+				<div><span class="octicon octicon-check text-muted"></span></div>
 			</li>`;
 		}).join('');
 		if (!html) {

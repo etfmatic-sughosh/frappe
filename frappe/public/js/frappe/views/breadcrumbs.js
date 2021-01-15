@@ -8,7 +8,18 @@ frappe.breadcrumbs = {
 		"File": "",
 		"Dashboard": "Customization",
 		"Dashboard Chart": "Customization",
-		"Dashboard Chart Source": "Customization",
+		"Dashboard Chart Source": "Customization"
+	},
+
+	module_map: {
+		'Core': 'Settings',
+		'Email': 'Settings',
+		'Custom': 'Settings',
+		'Workflow': 'Settings',
+		'Printing': 'Settings',
+		'Setup': 'Settings',
+		'Event Streaming': 'Tools',
+		'Automation': 'Tools',
 	},
 
 	set_doctype_module: function(doctype, module) {
@@ -73,20 +84,25 @@ frappe.breadcrumbs = {
 		}
 
 		if(breadcrumbs.module) {
-			if(in_list(["Core", "Email", "Custom", "Workflow", "Print"], breadcrumbs.module)) {
-				breadcrumbs.module = "Setup";
+			if (frappe.breadcrumbs.module_map[breadcrumbs.module]) {
+				breadcrumbs.module = frappe.breadcrumbs.module_map[breadcrumbs.module];
 			}
 
-			if(frappe.get_module(breadcrumbs.module)) {
+			let current_module = breadcrumbs.module
+			// Check if a desk page exists
+			if (frappe.boot.module_page_map[breadcrumbs.module]) {
+				breadcrumbs.module = frappe.boot.module_page_map[breadcrumbs.module];
+			}
+
+			if(frappe.get_module(current_module)) {
 				// if module access exists
-				var module_info = frappe.get_module(breadcrumbs.module),
+				var module_info = frappe.get_module(current_module),
 					icon = module_info && module_info.icon,
 					label = module_info ? module_info.label : breadcrumbs.module;
 
-
 				if(module_info && !module_info.blocked && frappe.visible_modules.includes(module_info.module_name)) {
-					$(repl('<li><a href="#modules/%(module)s">%(label)s</a></li>',
-						{ module: breadcrumbs.module, label: __(label) }))
+					$(repl('<li><a href="#workspace/%(module)s">%(label)s</a></li>',
+						{ module: breadcrumbs.module, label: __(breadcrumbs.module) }))
 						.appendTo($breadcrumbs);
 				}
 			}

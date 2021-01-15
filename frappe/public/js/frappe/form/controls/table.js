@@ -9,7 +9,8 @@ frappe.ui.form.ControlTable = frappe.ui.form.Control.extend({
 			frm: this.frm,
 			df: this.df,
 			perm: this.perm || (this.frm && this.frm.perm) || this.df.perm,
-			parent: this.wrapper
+			parent: this.wrapper,
+			control: this
 		});
 		if(this.frm) {
 			this.frm.grids[this.frm.grids.length] = this;
@@ -102,5 +103,8 @@ frappe.ui.form.ControlTable = frappe.ui.form.Control.extend({
 	},
 	validate: function() {
 		return this.get_value();
+	},
+	check_all_rows() {
+		this.$wrapper.find('.grid-row-check')[0].click();
 	}
 });

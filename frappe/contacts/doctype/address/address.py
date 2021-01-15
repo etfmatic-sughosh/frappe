@@ -39,13 +39,13 @@ class Address(Document):
 
 	def validate(self):
 		self.link_address()
-		self.validate_reference()
+		self.validate_preferred_address()
 		set_link_title(self)
 		deduplicate_dynamic_links(self)
 
 	def link_address(self):
 		"""Link address based on owner"""
-		if not self.links and not self.is_your_company_address:
+		if not self.links:
 			contact_name = frappe.db.get_value("Contact", {"email_id": self.owner})
 			if contact_name:
 				contact = frappe.get_cached_doc('Contact', contact_name)
@@ -55,14 +55,16 @@ class Address(Document):
 
 		return False
 
-	def validate_reference(self):
-		if self.is_your_company_address:
-			if not [row for row in self.links if row.link_doctype == "Company"]:
-				frappe.throw(_("Company is mandatory, as it is your company address"))
+	def validate_preferred_address(self):
+		preferred_fields = ['is_primary_address', 'is_shipping_address']
 
-			# removing other links
-			to_remove = [row for row in self.links if row.link_doctype != "Company"]
-			[ self.remove(row) for row in to_remove ]
+		for field in preferred_fields:
+			if self.get(field):
+				for link in self.links:
+					address = get_preferred_address(link.link_doctype, link.link_name, field)
+
+					if address:
+						update_preferred_address(address, field)
 
 	def get_display(self):
 		return get_address_display(self.as_dict())
@@ -79,6 +81,23 @@ class Address(Document):
 				return True
 
 		return False
+
+def get_preferred_address(doctype, name, preferred_key='is_primary_address'):
+	if preferred_key in ['is_shipping_address', 'is_primary_address']:
+		address = frappe.db.sql(""" SELECT
+				addr.name
+			FROM
+				`tabAddress` addr, `tabDynamic Link` dl
+			WHERE
+				dl.parent = addr.name and dl.link_doctype = %s and
+				dl.link_name = %s and ifnull(addr.disabled, 0) = 0 and
+				%s = %s
+			""" % ('%s', '%s', preferred_key, '%s'), (doctype, name, 1), as_dict=1)
+
+		if address:
+			return address[0].name
+
+	return
 
 @frappe.whitelist()
 def get_default_address(doctype, name, sort_key='is_primary_address'):
@@ -143,34 +162,14 @@ def get_list_context(context=None):
 	}
 
 def get_address_list(doctype, txt, filters, limit_start, limit_page_length = 20, order_by = None):
-    from frappe.www.list import get_list
-    user = frappe.session.user
-    ignore_permissions = False
-    if is_website_user():
-        if not filters: filters = []
-        add_name = []
-        contact = frappe.db.sql("""
-			select
-				address.name
-			from
-				`tabDynamic Link` as link
-			join
-				`tabAddress` as address on link.parent = address.name
-			where
-				link.parenttype = 'Address' and
-				link_name in(
-				   select
-					   link.link_name from `tabContact` as contact
-				   join
-					   `tabDynamic Link` as link on contact.name = link.parent
-				   where
-					   contact.user = %s)""",(user))
-        for c in contact:
-            add_name.append(c[0])
-        filters.append(("Address", "name", "in", add_name))
-        ignore_permissions = True
+	from frappe.www.list import get_list
+	user = frappe.session.user
+	ignore_permissions = True
 
-    return get_list(doctype, txt, filters, limit_start, limit_page_length, ignore_permissions=ignore_permissions)
+	if not filters: filters = []
+	filters.append(("Address", "owner", "=", user))
+
+	return get_list(doctype, txt, filters, limit_start, limit_page_length, ignore_permissions=ignore_permissions)
 
 def has_website_permission(doc, ptype, user, verbose=False):
 	"""Returns true if there is a related lead or contact related to this document"""
@@ -198,25 +197,6 @@ def get_address_templates(address):
 	else:
 		return result
 
-@frappe.whitelist()
-def get_shipping_address(company, address = None):
-	filters = [
-		["Dynamic Link", "link_doctype", "=", "Company"],
-		["Dynamic Link", "link_name", "=", company],
-		["Address", "is_your_company_address", "=", 1]
-	]
-	fields = ["*"]
-	if address and frappe.db.get_value('Dynamic Link',
-		{'parent': address, 'link_name': company}):
-		filters.append(["Address", "name", "=", address])
-
-	address = frappe.get_all("Address", filters=filters, fields=fields) or {}
-
-	if address:
-		address_as_dict = address[0]
-		name, address_template = get_address_templates(address_as_dict)
-		return address_as_dict.get("name"), frappe.render_template(address_template, address_as_dict)
-
 def get_company_address(company):
 	ret = frappe._dict()
 	ret.company_address = get_default_address('Company', company)
@@ -224,6 +204,8 @@ def get_company_address(company):
 
 	return ret
 
+@frappe.whitelist()
+@frappe.validate_and_sanitize_search_inputs
 def address_query(doctype, txt, searchfield, start, page_len, filters):
 	from frappe.desk.reportview import get_match_cond
 
@@ -231,11 +213,25 @@ def address_query(doctype, txt, searchfield, start, page_len, filters):
 	link_name = filters.pop('link_name')
 
 	condition = ""
+	meta = frappe.get_meta("Address")
 	for fieldname, value in iteritems(filters):
-		condition += " and {field}={value}".format(
-			field=fieldname,
-			value=value
-		)
+		if meta.get_field(fieldname) or fieldname in frappe.db.DEFAULT_COLUMNS:
+			condition += " and {field}={value}".format(
+				field=fieldname,
+				value=frappe.db.escape(value))
+
+	searchfields = meta.get_search_fields()
+
+	if searchfield and (meta.get_field(searchfield)\
+				or searchfield in frappe.db.DEFAULT_COLUMNS):
+		searchfields.append(searchfield)
+
+	search_condition = ''
+	for field in searchfields:
+		if search_condition == '':
+			search_condition += '`tabAddress`.`{field}` like %(txt)s'.format(field=field)
+		else:
+			search_condition += ' or `tabAddress`.`{field}` like %(txt)s'.format(field=field)
 
 	return frappe.db.sql("""select
 			`tabAddress`.name, `tabAddress`.city, `tabAddress`.country
@@ -247,7 +243,7 @@ def address_query(doctype, txt, searchfield, start, page_len, filters):
 			`tabDynamic Link`.link_doctype = %(link_doctype)s and
 			`tabDynamic Link`.link_name = %(link_name)s and
 			ifnull(`tabAddress`.disabled, 0) = 0 and
-			`tabAddress`.`{key}` like %(txt)s
+			({search_condition})
 			{mcond} {condition}
 		order by
 			if(locate(%(_txt)s, `tabAddress`.name), locate(%(_txt)s, `tabAddress`.name), 99999),
@@ -255,6 +251,7 @@ def address_query(doctype, txt, searchfield, start, page_len, filters):
 		limit %(start)s, %(page_len)s """.format(
 			mcond=get_match_cond(doctype),
 			key=searchfield,
+			search_condition = search_condition,
 			condition=condition or ""), {
 			'txt': '%' + txt + '%',
 			'_txt': txt.replace("%", ""),
@@ -263,3 +260,10 @@ def address_query(doctype, txt, searchfield, start, page_len, filters):
 			'link_name': link_name,
 			'link_doctype': link_doctype
 		})
+
+def get_condensed_address(doc):
+	fields = ["address_title", "address_line1", "address_line2", "city", "county", "state", "country"]
+	return ", ".join([doc.get(d) for d in fields if doc.get(d)])
+
+def update_preferred_address(address, field):
+	frappe.db.set_value('Address', address, field, 0)

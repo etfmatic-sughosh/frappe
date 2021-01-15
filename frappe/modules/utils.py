@@ -90,10 +90,11 @@ def sync_customizations(app=None):
 			folder = frappe.get_app_path(app_name, module_name, 'custom')
 			if os.path.exists(folder):
 				for fname in os.listdir(folder):
-					with open(os.path.join(folder, fname), 'r') as f:
-						data = json.loads(f.read())
-					if data.get('sync_on_migrate'):
-						sync_customizations_for_doctype(data, folder)
+					if fname.endswith('.json'):
+						with open(os.path.join(folder, fname), 'r') as f:
+							data = json.loads(f.read())
+						if data.get('sync_on_migrate'):
+							sync_customizations_for_doctype(data, folder)
 
 
 def sync_customizations_for_doctype(data, folder):
@@ -119,7 +120,7 @@ def sync_customizations_for_doctype(data, folder):
 					custom_doctype, doctype_fieldname), doc_type)
 
 				for d in data[key]:
-					_insert(data)
+					_insert(d)
 
 			else:
 				for d in data[key]:
@@ -240,6 +241,12 @@ def make_boilerplate(template, doc, opts=None):
 		if not opts:
 			opts = {}
 
+		base_class = 'Document'
+		base_class_import = 'from frappe.model.document import Document'
+		if doc.get('is_tree'):
+			base_class = 'NestedSet'
+			base_class_import = 'from frappe.utils.nestedset import NestedSet'
+
 		with open(target_file_path, 'w') as target:
 			with open(os.path.join(get_module_path("core"), "doctype", scrub(doc.doctype),
 				"boilerplate", template), 'r') as source:
@@ -248,5 +255,7 @@ def make_boilerplate(template, doc, opts=None):
 						app_publisher=app_publisher,
 						year=frappe.utils.nowdate()[:4],
 						classname=doc.name.replace(" ", ""),
+						base_class_import=base_class_import,
+						base_class=base_class,
 						doctype=doc.name, **opts)
 				))
