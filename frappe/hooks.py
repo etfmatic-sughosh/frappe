@@ -104,7 +104,8 @@ permission_query_conditions = {
 	"Address": "frappe.contacts.address_and_contact.get_permission_query_conditions_for_address",
 	"Communication": "frappe.core.doctype.communication.communication.get_permission_query_conditions_for_communication",
 	"Workflow Action": "frappe.workflow.doctype.workflow_action.workflow_action.get_permission_query_conditions",
-	"Prepared Report": "frappe.core.doctype.prepared_report.prepared_report.get_permission_query_condition"
+	"Prepared Report": "frappe.core.doctype.prepared_report.prepared_report.get_permission_query_condition",
+	"Delegation": "frappe.workflow.doctype.delegation.delegation.get_permission_query_conditions"
 }
 
 has_permission = {
@@ -119,6 +120,7 @@ has_permission = {
 	"Address": "frappe.contacts.address_and_contact.has_permission",
 	"Communication": "frappe.core.doctype.communication.communication.has_permission",
 	"Workflow Action": "frappe.workflow.doctype.workflow_action.workflow_action.has_permission",
+	"Delegation": "frappe.workflow.doctype.delegation.delegation.has_permission",
 	"File": "frappe.core.doctype.file.file.has_permission",
 	"Prepared Report": "frappe.core.doctype.prepared_report.prepared_report.has_permission"
 }

@@ -13,7 +13,7 @@ from six import iteritems, string_types
 from werkzeug.exceptions import NotFound, Forbidden
 import hashlib, json
 from frappe.model import optional_fields, table_fields
-from frappe.model.workflow import validate_workflow
+from frappe.model.workflow import validate_workflow, get_workflow
 from frappe.model.workflow import set_workflow_state_on_action
 from frappe.utils.global_search import update_global_search
 from frappe.integrations.doctype.webhook import run_webhooks
@@ -238,6 +238,11 @@ class Document(BaseDocument):
 		self.run_before_save_methods()
 		self._validate()
 		self.set_docstatus()
+		if hasattr(self, 'workflow_def'):
+			workflow = get_workflow(self)
+			if workflow:
+				self.workflow_def = workflow.name
+
 		self.flags.in_insert = False
 
 		# run validate, on update etc.
@@ -535,7 +540,7 @@ class Document(BaseDocument):
 		"""Validate if the workflow transition is valid"""
 		if frappe.flags.in_install == 'frappe': return
 		workflow = self.meta.get_workflow()
-		if workflow:
+		if get_workflow(self):
 			validate_workflow(self)
 			if not self._action == 'save':
 				set_workflow_state_on_action(self, workflow, self._action)

@@ -125,7 +125,6 @@ frappe.views.ListView = class ListView extends frappe.views.BaseList {
 
 	set_actions_menu_items() {
 		this.actions_menu_items = this.get_actions_menu_items();
-		this.workflow_action_menu_items = this.get_workflow_action_menu_items();
 		this.workflow_action_items = {};
 
 		const actions = this.actions_menu_items.concat(this.workflow_action_menu_items);
@@ -528,7 +527,7 @@ frappe.views.ListView = class ListView extends frappe.views.BaseList {
 				const $this = $(e.currentTarget);
 				this.filter_area.add(this.doctype, '_user_tags', '=', $this.text());
 			});
-		});
+		});]
 	}
 
 	get_header_html() {
@@ -1365,17 +1364,31 @@ frappe.views.ListView = class ListView extends frappe.views.BaseList {
 	}
 
 	toggle_workflow_actions() {
-		if (!frappe.model.has_workflow(this.doctype)) return;
 		const checked_items = this.get_checked_items();
+		var me=this;
 		frappe.xcall('frappe.model.workflow.get_common_transition_actions', {
 			docs: checked_items,
 			doctype: this.doctype
 		}).then(actions => {
-			Object.keys(this.workflow_action_items).forEach((key) => {
-				this.workflow_action_items[key].toggle(actions.includes(key));
+			me.workflow_action_items  && Object.keys(me.workflow_action_items).forEach((key) => {
+				me.workflow_action_items[key].remove();
+			});
+			actions.map(item => {
+				const $item = me.page.add_actions_menu_item(item.action, 
+					() => {
+						frappe.xcall('frappe.model.workflow.bulk_workflow_approval', {
+							docnames: me.get_checked_items(true),
+							doctype: me.doctype,
+							action: item.action,
+							transition: item.transition
+						});
+					},
+					true);			
+				me.workflow_action_items[item.transition] = $item;			
 			});
 		});
 	}
+
 
 	get_actions_menu_items() {
 		const doctype = this.doctype;

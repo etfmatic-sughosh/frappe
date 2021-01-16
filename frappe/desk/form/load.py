@@ -104,7 +104,8 @@ def get_docinfo(doc=None, doctype=None, name=None):
 		"milestones": get_milestones(doc.doctype, doc.name),
 		"is_document_followed": is_document_followed(doc.doctype, doc.name, frappe.session.user),
 		"tags": get_tags(doc.doctype, doc.name),
-		"document_email": get_document_email(doc.doctype, doc.name)
+		"document_email": get_document_email(doc.doctype, doc.name),
+		"workflow": frappe.model.workflow.get_workflow(doc) or {}
 	}
 
 def get_milestones(doctype, name):
