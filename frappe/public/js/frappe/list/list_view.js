@@ -129,14 +129,17 @@ frappe.views.ListView = class ListView extends frappe.views.BaseList {
 
 		const actions = this.actions_menu_items.concat(this.workflow_action_menu_items);
 		actions.map(item => {
-			const $item = this.page.add_actions_menu_item(item.label, item.action, item.standard);
-			if (item.class) {
-				$item.addClass(item.class);
+			if(item){
+				const $item = this.page.add_actions_menu_item(item.label, item.action, item.standard);
+				if (item.class) {
+					$item.addClass(item.class);
+				}
+				if (item.is_workflow_action && $item) {
+					// can be used to dynamically show or hide action
+					this.workflow_action_items[item.name] = $item;
+				}
 			}
-			if (item.is_workflow_action && $item) {
-				// can be used to dynamically show or hide action
-				this.workflow_action_items[item.name] = $item;
-			}
+			
 		});
 	}
 
@@ -527,7 +530,7 @@ frappe.views.ListView = class ListView extends frappe.views.BaseList {
 				const $this = $(e.currentTarget);
 				this.filter_area.add(this.doctype, '_user_tags', '=', $this.text());
 			});
-		});]
+		});
 	}
 
 	get_header_html() {

@@ -8,33 +8,37 @@ from frappe import _
 from six import string_types
 import json
 
+
 class WorkflowStateError(frappe.ValidationError): pass
 class WorkflowTransitionError(frappe.ValidationError): pass
 class WorkflowPermissionError(frappe.ValidationError): pass
+
 
 def evaluate_condition(condition, doc):
 	result = True
 	if condition:
 		# if condition, evaluate access to frappe.db.get_value and frappe.db.get_list
 		result = frappe.safe_eval(condition,
-			dict(frappe = frappe._dict(
-				db = frappe._dict(get_value = frappe.db.get_value, get_list=frappe.db.get_list),
-				session = frappe.session
+			dict(frappe=frappe._dict(
+				db=frappe._dict(get_value=frappe.db.get_value,
+				                get_list=frappe.db.get_list),
+				session=frappe.session
 			)),
-			dict(doc = doc))
+			dict(doc=doc))
 	return result
+
 
 def get_workflow(doc):
 	if hasattr(doc, 'workflow_def'):
 		if doc.is_new():
-			filters={'document_type':doc.doctype}
-			fields=['company','eval_condition', 'workflow']
+			filters = {'document_type': doc.doctype}
+			fields = ['company', 'eval_condition', 'workflow']
 			assignments = frappe.get_list('Workflow Assignment',
-				filters=filters , fields=fields, ignore_permissions=1)
+				filters=filters, fields=fields, ignore_permissions=1)
 			for assignment in assignments:
 				if evaluate_condition(assignment.eval_condition, doc) and \
-					  (not hasattr(doc, 'company') or not assignment.company or \
-					(hasattr(doc,'company') and doc.get('company') == assignment.company)):
+					  (not hasattr(doc, 'company') or not assignment.company or
+					(hasattr(doc, 'company') and doc.get('company') == assignment.company)):
 
 					return frappe.get_doc('Workflow', assignment.workflow)
 		else:
@@ -43,7 +47,6 @@ def get_workflow(doc):
 				workflow = frappe.get_doc('Workflow', doc.workflow_def)
 				frappe.cache().hset('workflow', doc, workflow or '')
 			return workflow
-
 
 
 def get_workflow_name(doctype):
@@ -55,8 +58,9 @@ def get_workflow_name(doctype):
 
 	return workflow_name
 
+
 @frappe.whitelist()
-def get_transitions(doc, workflow = None, raise_exception=False):
+def get_transitions(doc, workflow=None, raise_exception=False):
 	'''Return list of possible transitions for the given doc'''
 	doc = frappe.get_doc(frappe.parse_json(doc))
 
@@ -85,8 +89,9 @@ def get_transitions(doc, workflow = None, raise_exception=False):
 			transitions.append(transition)
 	return transitions
 
+
 @frappe.whitelist()
-def get_user_actions(doc, workflow = None, user =None):
+def get_user_actions(doc, workflow=None, user=None):
 	'''Return user possible actions'''
 
 	doc = frappe.get_doc(frappe.parse_json(doc))
@@ -97,17 +102,19 @@ def get_user_actions(doc, workflow = None, user =None):
 	state = doc.get(workflow.workflow_state_field)
 	return get_open_workflow_action(doc, state, user)
 
-def get_open_workflow_action(doc, state , user = None):
+
+def get_open_workflow_action(doc, state, user=None):
 	if user and user in ['Administrator']:
-		return [{'user':'Administrator', 'actions':'', 'action_source': 'Normal','previous_user': ''}]
-	filters={'status': ('!=','Completed'),
+		return [{'user': 'Administrator', 'actions': '', 'action_source': 'Normal', 'previous_user': ''}]
+	filters = {'status': ('!=', 'Completed'),
 		'workflow_state': state,
 		'reference_doctype': doc.get('doctype'),
 		'reference_name': doc.get('name')}
 	if user:
 		filters.update({'user': user})
-	fields=['user', 'actions','action_source','previous_user']
-	return frappe.get_list("Workflow Action", filters= filters, fields=fields, ignore_permissions=True)
+	fields = ['user', 'actions', 'action_source', 'previous_user']
+	return frappe.get_list("Workflow Action", filters=filters, fields=fields, ignore_permissions=True)
+
 
 def get_workflow_safe_globals():
 	# access to frappe.db.get_value, frappe.db.get_list, and date time utils.
@@ -124,15 +131,17 @@ def get_workflow_safe_globals():
 		)
 	)
 
+
 def is_transition_condition_satisfied(transition, doc):
 	if not transition.condition:
 		return True
 	else:
 		return frappe.safe_eval(transition.condition, get_workflow_safe_globals(), dict(doc=doc.as_dict()))
 
+
 @frappe.whitelist()
 def apply_workflow(doc, action, transition_name=None, possible_actions=None,
-		next_user=None, action_source=None, previous_user=None,comment=None):
+		next_user=None, action_source=None, previous_user=None, comment=None):
 	'''Allow workflow action on the current doc'''
 	doc = frappe.get_doc(frappe.parse_json(doc))
 	workflow = get_workflow(doc)
@@ -141,21 +150,23 @@ def apply_workflow(doc, action, transition_name=None, possible_actions=None,
 
 	user = frappe.session.user
 
-	if action in ['Forward','Add Additional Check']:
+	if action in ['Forward', 'Add Additional Check']:
 		from frappe.workflow.doctype.workflow_action.workflow_action import (
 			create_workflow_actions, update_completed_workflow_actions)
 		update_completed_workflow_actions(doc, user, action)
-		create_workflow_actions(workflow, doc, next_user,possible_actions, action, user, comment=comment)
+		create_workflow_actions(workflow, doc, next_user,
+		                        possible_actions, action, user, comment=comment)
 
-		action_msg = 'Forwarded' if action =='Forward' else 'Requested Additional Check'
-		doc.add_comment('Workflow', _('%s by %s to %s' %(action_msg, user, next_user) ))
+		action_msg = 'Forwarded' if action == 'Forward' else 'Requested Additional Check'
+		doc.add_comment('Workflow', _('%s by %s to %s' %
+		                (action_msg, user, next_user)))
 		return doc
 
 	if transition_name:
 		transition = frappe.get_doc('Workflow Transition', transition_name)
 	else:
 		if action == 'Start':
-			transition =frappe._dict({'allow_self_approval':1, 'next_state': workflow.transitions[0].state,
+			transition = frappe._dict({'allow_self_approval': 1, 'next_state': workflow.transitions[0].state,
 				'multi_user_action_mode': 'Any'})
 		else:
 			# find the transition
@@ -173,27 +184,31 @@ def apply_workflow(doc, action, transition_name=None, possible_actions=None,
 	if not has_approval_access(user, doc, transition):
 		frappe.throw(_("Self approval is not allowed"))
 
-	is_pre_check_action = action_source and action_source in ['Pre-Check', 'Add Additional Check']
-	if (transition.multi_user_action_mode == 'All' and other_user_open_action_count(doc, transition.state, user)>0) or \
+	is_pre_check_action = action_source and action_source in [
+	    'Pre-Check', 'Add Additional Check']
+	if (transition.multi_user_action_mode == 'All' and other_user_open_action_count(doc, transition.state, user) > 0) or \
                 (is_pre_check_action):
 
-		frappe.workflow.doctype.workflow_action.workflow_action.update_completed_workflow_actions(doc, user, action)
+		frappe.workflow.doctype.workflow_action.workflow_action.update_completed_workflow_actions(
+		    doc, user, action)
 		msg = 'Pre-check' if is_pre_check_action else 'Multi User Parallel Approval'
-		doc.add_comment('Workflow', _('%s action, %s by %s with comment %s' %(msg, action, user, comment)))
+		doc.add_comment('Workflow', _(
+		    '%s action, %s by %s with comment %s' % (msg, action, user, comment)))
 		if is_pre_check_action and previous_user:
 			frappe.workflow.doctype.workflow_action.workflow_action.create_workflow_actions(workflow, doc,
-				previous_user,possible_actions, '', user, comment=comment)
+				previous_user, possible_actions, '', user, comment=comment)
 	else:
 		# update workflow state field
 		doc.workflow_action = action
 		doc.workflow_comment = comment
-		if action =='Reject':
-			transition.next_state =workflow.states[0].state
+		if action == 'Reject':
+			transition.next_state = workflow.states[0].state
 
 		doc.set(workflow.workflow_state_field, transition.next_state)
 
 		# find settings for the next state
-		next_state = [d for d in workflow.states if d.state == transition.next_state][0]
+		next_state = [d for d in workflow.states if d.state ==
+		    transition.next_state][0]
 
 		# update any additional field
 		if next_state.update_field:
@@ -211,18 +226,20 @@ def apply_workflow(doc, action, transition_name=None, possible_actions=None,
 		else:
 			frappe.throw(_('Illegal Document Status for {0}').format(next_state.state))
 
-		doc.add_comment('Workflow', '%s %s' %(_(next_state.state), comment))
+		doc.add_comment('Workflow', '%s %s' % (_(next_state.state), comment))
 
 	return doc
 
+
 def other_user_open_action_count(doc, state, user):
 	user = user if user else frappe.session.user
-	filters={    'status': ('!=','Completed'),
-		'workflow_state' : state,
+	filters = {'status': ('!=', 'Completed'),
+		'workflow_state': state,
 		'user': ('!=', user),
 		'reference_doctype': doc.get('doctype'),
 		 'reference_name': doc.get('name')}
-	return frappe.db.count("Workflow Action", filters= filters)
+	return frappe.db.count("Workflow Action", filters=filters)
+
 
 @frappe.whitelist()
 def can_cancel_document(doctype):
@@ -234,6 +251,7 @@ def can_cancel_document(doctype):
 					return False
 			return True
 	return True
+
 
 def validate_workflow(doc):
 	'''Validate Workflow State and Transition for the current user.
@@ -257,12 +275,12 @@ def validate_workflow(doc):
 
 	default_state = workflow.states[0].state
 	if frappe.session.user == doc.owner and current_state == default_state: return
-	if hasattr(doc,'workflow_action') and doc.workflow_action == 'Reject' and next_state == default_state: return
-
+	if hasattr(doc, 'workflow_action') and doc.workflow_action == 'Reject' and next_state == default_state: return
 
 	state_row = [d for d in workflow.states if d.state == current_state]
 	if not state_row:
-		frappe.throw(_('{0} is not a valid Workflow State. Please update your Workflow and try again.'.format(frappe.bold(current_state))))
+		frappe.throw(_('{0} is not a valid Workflow State. Please update your Workflow and try again.'.format(
+		    frappe.bold(current_state))))
 	state_row = state_row[0]
 
 	# if transitioning, check if user is allowed to transition
@@ -282,16 +300,20 @@ def validate_workflow(doc):
 			frappe.throw(_('Workflow State transition not allowed from {0} to {1}').format(bold_current, bold_next),
 				WorkflowPermissionError)
 
+
 def has_approval_access(user, doc, transition):
 	return (user == 'Administrator'
 		or transition.get('allow_self_approval')
 		or user != doc.get('owner'))
 
+
 def get_workflow_state_field(workflow_name):
 	return get_workflow_field_value(workflow_name, 'workflow_state_field')
 
+
 def send_email_alert(workflow_name):
 	return get_workflow_field_value(workflow_name, 'send_email_alert')
+
 
 def get_workflow_field_value(workflow_name, field):
 	value = frappe.cache().hget('workflow_' + workflow_name, field)
@@ -300,11 +322,13 @@ def get_workflow_field_value(workflow_name, field):
 		frappe.cache().hset('workflow_' + workflow_name, field, value)
 	return value
 
+
 @frappe.whitelist()
 def get_workflow_field_status(workflow_name, state):
 	return frappe.db.sql(""" select d.field_name,d.reqd,d.read_only,d.hidden from `tabWorkflow Field Status` a inner join
 		 `tabWorkflow Field Status Detail` d on a.name=d.parent where a.workflow=%s and a.state=%s """,
 		 [workflow_name, state], as_dict=1)
+
 
 @frappe.whitelist()
 def bulk_workflow_approval(docnames, doctype, action, transition):
@@ -323,12 +347,13 @@ def bulk_workflow_approval(docnames, doctype, action, transition):
 		message_dict = {}
 		try:
 			show_progress(docnames, _('Applying: {0}').format(action), idx, docname)
-			apply_workflow(frappe.get_doc(doctype, docname), action, transition_name= transition)
+			apply_workflow(frappe.get_doc(doctype, docname),
+			               action, transition_name=transition)
 			frappe.db.commit()
 		except Exception as e:
 			if not frappe.message_log:
 				# Exception is  raised manually and not from msgprint or throw
-					message = "{0}".format(e.__class__.__name__)
+				message = "{0}".format(e.__class__.__name__)
 				if e.args:
 					message +=  " : {0}".format(e.args[0])
 				message_dict = {"docname": docname, "message": message}
