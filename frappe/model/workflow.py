@@ -46,8 +46,10 @@ def get_transitions(doc, workflow = None, raise_exception=False):
 
 	transitions = []
 	for transition in workflow.transitions:
+		# transitions.append(transition.as_dict())
+		# continue
 		if transition.state == current_state and transition.allowed in roles:
-			if not is_transition_condition_satisfied(transition, doc):
+			if not is_transition_condition_satisfied(transition, doc) or not has_permission_to_participate_in_workflow(doc,frappe.session.user,transition.allowed):
 				continue
 			transitions.append(transition.as_dict())
 	return transitions
@@ -66,6 +68,32 @@ def get_workflow_safe_globals():
 			),
 		)
 	)
+
+def has_permission_to_participate_in_workflow(doc, user, role):
+	if doc.doctype == 'MyRequest':
+		user_dep_mappings = get_user_department_mapping(doc,user,doc.req_department)
+		if has_required_role(role, user_dep_mappings):
+			return True
+
+	return False
+
+
+def get_user_department_mapping(doc,user,lookForDepartment):
+# read which department this doc belongs to 
+# read type of doc -- it should be material request
+# now get current user
+# now query department user mapping to find out if user belongs to this department
+# Also get what is the role user has in that department
+# If user does not have the role for that department for which workflow transition is configured about then we should skip it
+	user_dep_mappings = frappe.db.get_all('DepUserMapping',filters={'user':user,'user_dep':lookForDepartment},fields=['user_dep','user_dep_role','user'])
+	return user_dep_mappings
+
+
+def has_required_role(role,userDepMappings):
+	for depmap in userDepMappings:
+		if depmap.user_dep_role == role or role=='All':
+			return True
+	return False
 
 def is_transition_condition_satisfied(transition, doc):
 	if not transition.condition:
