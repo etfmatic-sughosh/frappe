@@ -163,11 +163,38 @@ def get_next_possible_transitions(workflow_name, state, doc=None):
 
 	return transitions_to_return
 
+def has_permission_to_participate_in_workflow(doc, user, role):
+	if doc.doctype == 'Material Request':
+		user_dep_mappings = get_user_department_mapping(doc,user,doc.gsp_on_behalf_of_department)
+		if has_required_role(role, user_dep_mappings):
+			return True
+
+	return False
+
+
+def get_user_department_mapping(doc,user,lookForDepartment):
+# read which department this doc belongs to 
+# read type of doc -- it should be material request
+# now get current user
+# now query department user mapping to find out if user belongs to this department
+# Also get what is the role user has in that department
+# If user does not have the role for that department for which workflow transition is configured about then we should skip it
+	user_dep_mappings = frappe.db.get_all('GSPDepartmentUserMapping',filters={'gsp_user':user,'gsp_department':lookForDepartment},fields=['gsp_department','user_dep_role','gsp_user'])
+	return user_dep_mappings
+
+
+def has_required_role(role,userDepMappings):
+	for depmap in userDepMappings:
+		if depmap.user_dep_role == role or role=='All':
+			return True
+	return False
+
 def get_users_next_action_data(transitions, doc):
 	user_data_map = {}
 	for transition in transitions:
 		users = get_users_with_role(transition.allowed)
-		filtered_users = filter_allowed_users(users, doc, transition)
+		filtered_users = filter_based_on_gsp_dep_user_mapping(users,doc,transition)
+		filtered_users = filter_allowed_users(filtered_users, doc, transition)
 		for user in filtered_users:
 			if not user_data_map.get(user):
 				user_data_map[user] = frappe._dict({
@@ -263,6 +290,13 @@ def get_doc_workflow_state(doc):
 	workflow_name = get_workflow_name(doc.get('doctype'))
 	workflow_state_field = get_workflow_state_field(workflow_name)
 	return doc.get(workflow_state_field)
+
+def filter_based_on_gsp_dep_user_mapping(users, doc, transition):
+	filtered_users = []
+	for user in users:
+		if has_permission_to_participate_in_workflow(doc, user, transition.allowed):
+			filtered_users.append(user)
+	return filtered_users
 
 def filter_allowed_users(users, doc, transition):
 	"""Filters list of users by checking if user has access to doc and

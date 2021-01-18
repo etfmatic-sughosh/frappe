@@ -70,8 +70,8 @@ def get_workflow_safe_globals():
 	)
 
 def has_permission_to_participate_in_workflow(doc, user, role):
-	if doc.doctype == 'MyRequest':
-		user_dep_mappings = get_user_department_mapping(doc,user,doc.req_department)
+	if doc.doctype == 'Material Request':
+		user_dep_mappings = get_user_department_mapping(doc,user,doc.gsp_on_behalf_of_department)
 		if has_required_role(role, user_dep_mappings):
 			return True
 
@@ -85,7 +85,7 @@ def get_user_department_mapping(doc,user,lookForDepartment):
 # now query department user mapping to find out if user belongs to this department
 # Also get what is the role user has in that department
 # If user does not have the role for that department for which workflow transition is configured about then we should skip it
-	user_dep_mappings = frappe.db.get_all('DepUserMapping',filters={'user':user,'user_dep':lookForDepartment},fields=['user_dep','user_dep_role','user'])
+	user_dep_mappings = frappe.db.get_all('GSPDepartmentUserMapping',filters={'gsp_user':user,'gsp_department':lookForDepartment},fields=['gsp_department','user_dep_role','gsp_user'])
 	return user_dep_mappings
 
 
@@ -206,7 +206,7 @@ def get_workflow(doctype):
 def has_approval_access(user, doc, transition):
 	return (user == 'Administrator'
 		or transition.get('allow_self_approval')
-		or user != doc.get('owner'))
+		or user != doc.get('owner') or has_permission_to_participate_in_workflow(doc, user,transition.allowed))
 
 def get_workflow_state_field(workflow_name):
 	return get_workflow_field_value(workflow_name, 'workflow_state_field')
